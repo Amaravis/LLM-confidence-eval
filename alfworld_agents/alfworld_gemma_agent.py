@@ -4,6 +4,29 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from alfworld.agents.environment import get_environment
 import alfworld.agents.modules.generic as generic
+import copy
+confidence_probe_prompt = "before you output the action for the next step, first output a set of confidence values that reflects the confidence you have in finding the clean large metal spoon in each of the following locations [cabinet 1', 'cabinet 10', 'cabinet 11', 'cabinet 12', 'cabinet 13', 'cabinet 14', 'cabinet 15', 'cabinet 16', 'cabinet 17', 'cabinet 18', 'cabinet 19', 'cabinet 2', 'cabinet 20', 'cabinet 21', 'cabinet 22', 'cabinet 23', 'cabinet 24', 'cabinet 25', 'cabinet 26', 'cabinet 27', 'cabinet 3', 'cabinet 4', 'cabinet 5', 'cabinet 6', 'cabinet 7', 'cabinet 8', 'cabinet 9', 'coffeemachine 1', 'countertop 1', 'countertop 2', 'diningtable 1', 'drawer 1', 'drawer 10', 'drawer 11', 'drawer 12', 'drawer 2', 'drawer 3', 'drawer 4', 'drawer 5', 'drawer 6', 'drawer 7', 'drawer 8', 'drawer 9', 'fridge 1', 'garbagecan 1', 'microwave 1', 'sinkbasin 1']. A confidence value between 0 to 100 should be assigned to all locations given above, the total of all confidence values should sum to 100"
+
+def probe_confidence(chat_history, tokenizer, model):
+
+        last_user_msg = {"role" : "user" , 
+
+        "content" : f"{confidence_probe_prompt}"}
+        chat_history_cp = copy.deepcopy(chat_history)
+        chat_history_cp.append(last_user_msg)
+        
+        # Generate Gemma response
+        prompt_text = tokenizer.apply_chat_template(chat_history_cp, tokenize=False, add_generation_prompt=True)
+        inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=128,
+                temperature=0.7,
+                do_sample=True
+            )
+        response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+        print(response)
 
 def gemma_alfworld_step_generator(env,task_desc, base_info, model, tokenizer, chat_json_path, expert_plan=None):
     """
@@ -130,6 +153,9 @@ if __name__ == '__main__':
             print("Admissible actions:", admissible)
             print("Gemma response:", response)
 
+            probe_yes = input("add confidence probe? (y/n)").strip().lower()
+            if probe_yes == 'y':
+                print(probe_confidence(chat_history,tokenizer,model))
             # Ask user if they want to step forward
             user_input = input("\nRun next step? (y/n): ").strip().lower()
             if user_input != 'y':
