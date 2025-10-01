@@ -6,29 +6,38 @@ from alfworld.agents.environment import get_environment
 import alfworld.agents.modules.generic as generic
 import copy
 import agent_load
+from groq import Groq
+
+MODEL_NAME = "gemma2-9b-it"
 confidence_probe_prompt = "before you output the action for the next step, first output a set of confidence values that reflects the confidence you have in finding a ladle in each of the following locations [cabinet 1', 'cabinet 10', 'cabinet 11', 'cabinet 12', 'cabinet 13', 'cabinet 14', 'cabinet 15', 'cabinet 16', 'cabinet 17', 'cabinet 18', 'cabinet 19', 'cabinet 2', 'cabinet 20', 'cabinet 21', 'cabinet 22', 'cabinet 23', 'cabinet 24', 'cabinet 25', 'cabinet 26', 'cabinet 27', 'cabinet 3', 'cabinet 4', 'cabinet 5', 'cabinet 6', 'cabinet 7', 'cabinet 8', 'cabinet 9', 'coffeemachine 1', 'countertop 1', 'countertop 2', 'diningtable 1', 'drawer 1', 'drawer 10', 'drawer 11', 'drawer 12', 'drawer 2', 'drawer 3', 'drawer 4', 'drawer 5', 'drawer 6', 'drawer 7', 'drawer 8', 'drawer 9', 'fridge 1', 'garbagecan 1', 'microwave 1', 'sinkbasin 1']. A confidence value between 0 to 100 should be assigned to all locations given above, the total of all confidence values should sum to 100"
 
-def probe_confidence(chat_history, tokenizer, model):
+def probe_confidence(chat_history, client):
 
-        last_user_msg = {"role" : "user" , 
-        "content" : f"{confidence_probe_prompt}"}
+        #last_user_msg = {"role" : "user" , 
+        #"content" : f"{confidence_probe_prompt}"}
+        with open("probe_model.json", "r") as f:
+            last_user_msg = json.load(f)
+
         chat_history_cp = copy.deepcopy(chat_history)
-        chat_history_cp.append(last_user_msg)
+        chat_history_cp.extend(last_user_msg)
+        #print(chat_history_cp)
         
         # Generate Gemma response
-        prompt_text = tokenizer.apply_chat_template(chat_history_cp, tokenize=False, add_generation_prompt=True)
-        inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=512,
-                temperature=0.7,
-                do_sample=True
-            )
-        response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=chat_history_cp,
+            temperature=0.5,
+            max_tokens=1024,
+            top_p=1,
+            stream=False, # <<< CHANGED: Set streaming to False
+            stop=None,
+            tools=[]
+        )
+
+        response = completion.choices[0].message.content
         print(response)
 
-def gemma_alfworld_step_generator(env,task_desc, base_obs,base_info, model, tokenizer, chat_json_path, expert_plan=None):
+def gemma_alfworld_step_generator(env,task_desc, base_obs,base_info, client, chat_json_path, expert_plan=None):
     """
     Generator function to step through ALFWorld with Gemma.
     
@@ -48,6 +57,8 @@ def gemma_alfworld_step_generator(env,task_desc, base_obs,base_info, model, toke
     
     # Reset environment
     
+  
+ 
     # Load chat history JSON
     with open(chat_json_path, "r") as f:
         chat_history = json.load(f)
@@ -64,7 +75,7 @@ def gemma_alfworld_step_generator(env,task_desc, base_obs,base_info, model, toke
         
         
         if step == 1:
-          current_obs =  base_obs[0]
+          current_obs =  f"{base_obs[0]} , (Hint: check diningtable first)"
           admissible_commands = base_info['admissible_commands'][0]        
         else:
             current_obs = obs[0]
@@ -79,16 +90,18 @@ def gemma_alfworld_step_generator(env,task_desc, base_obs,base_info, model, toke
         chat_history.append(last_user_msg)
         
         # Generate Gemma response
-        prompt_text = tokenizer.apply_chat_template(chat_history, tokenize=False, add_generation_prompt=True)
-        inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=256,
-                temperature=0.7,
-                do_sample=True
-            )
-        response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=chat_history,
+            temperature=0.7,
+            max_tokens=1024,
+            top_p=1,
+            stream=False, # <<< CHANGED: Set streaming to False
+            stop=None,
+            tools=[]
+        )
+
+        response = completion.choices[0].message.content
         
         # Pick a valid action from response or fallback
         action = None
@@ -139,26 +152,24 @@ if __name__ == '__main__':
 
     task_description = obs[0].partition("Your task is to: ")[-1]
     print(task_description)
-
-    model_name = "google/gemma-3-12b-it"
-    model, tokenizer = agent_load.load_model(model_name)
+    client = Groq()
 
     # Path to your chat history JSON
     chat_json_path = "chat_history.json"
 
     # Create generator
-    gen = gemma_alfworld_step_generator(env, task_description, obs, info, model, tokenizer, chat_json_path)
+    gen = gemma_alfworld_step_generator(env, task_description, obs, info, client, chat_json_path)
 
     while True:
         try:
             obs, admissible, response, chat_history, dones = next(gen)
             print("\nObservation:", obs)
             print("Admissible actions:", admissible)
-            print("Gemma response:", response)
+            print("model response:", response)
 
             probe_yes = input("add confidence probe? (y/n)").strip().lower()
             if probe_yes == 'y':
-                print(probe_confidence(chat_history,tokenizer,model))
+                print(probe_confidence(chat_history,client))
             # Ask user if they want to step forward
             user_input = input("\nRun next step? (y/n): ").strip().lower()
             if user_input != 'y':

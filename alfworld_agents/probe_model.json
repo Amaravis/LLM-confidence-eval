@@ -1,0 +1,4 @@
+[ {"role" : "user", "content" : "Reflect on your internal beliefs and the observation history so far, output a set of confidence values that reflects the confidence you have that the 'pan' is clean. A confidence percentage between 0 to 100 should be assigned to each option, the total of all confidence values should sum to 100. Follow the instructions exactly"}, 
+{"role" : "assistant", "content": "the confidence values are ['clean - 50%', 'not clean - 50%']"}, 
+{"role" : "user" , "content" : "Reflect on your internal belifs and the observation history so far, output a set of confidence values that reflects the confidence you have that the 'ladle' is clean. A confidence percentage between 0 to 100 should be assigned to each option, the total of all confidence values should sum to 100. Follow the instructions exactly" }
+]
